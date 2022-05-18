@@ -1885,6 +1885,12 @@
               "type": "boolean",
               "default": false
             },
+            "skip-unchanged-rhs" : {
+              "title" : "solvers.td3.skip-unchanged-rhs",
+              "description" : "Skip evaluation of RHS if all dependencies are unchanged - INCOMPATIBLE WITH RESTARTING",
+              "type" : "boolean",
+              "default" : true
+            },
             "restart": {
               "title": "solvers.td3.restart",
               "type": "object",
