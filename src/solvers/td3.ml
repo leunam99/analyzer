@@ -244,7 +244,7 @@ module WP =
         )
       and eq x get set =
         if tracing then trace "sol2" "eq %a\n" S.Var.pretty_trace x;
-        eval_rhs_event x;
+        
         match S.system x with
         | None -> S.Dom.bot ()
         | Some f ->
@@ -265,6 +265,14 @@ module WP =
               oldv
             | _ ->
               (
+                (* This needs to be done here as a local warpper around get to avoid polluting dep_vals during earlier checks *)
+                let get y =
+                  let tmp = get y in
+                  let (oldv,curr_dep_vals) = HM.find dep_vals x in
+                  (HM.replace dep_vals x (oldv,((y,tmp) :: curr_dep_vals));
+                   tmp)
+                in
+                eval_rhs_event x;
                 (* Reset dep_vals to [] *)
                 HM.replace dep_vals x (S.Dom.bot (),[]);
                 let res = f get set in
@@ -273,7 +281,8 @@ module WP =
                 res
               )
           else
-            f get set
+            (eval_rhs_event x;
+             f get set)
       and simple_solve l x y =
         if tracing then trace "sol2" "simple_solve %a (rhs: %b)\n" S.Var.pretty_trace y (S.system y <> None);
         if S.system y = None then (init y; HM.replace stable y (); HM.find rho y) else
@@ -308,9 +317,6 @@ module WP =
         let tmp = simple_solve l x y in
         if HM.mem rho y then add_infl y x;
         if tracing then trace "sol2" "eval %a ## %a -> %a\n" S.Var.pretty_trace x S.Var.pretty_trace y S.Dom.pretty tmp;
-        if skip_unchanged_rhs then
-          (let (oldv,curr_dep_vals) = HM.find dep_vals x in
-           HM.replace dep_vals x (oldv,((y,tmp) :: curr_dep_vals)));
         tmp
       and side ?x y d = (* side from x to y; only to variables y w/o rhs; x only used for trace *)
         if tracing then trace "sol2" "side to %a (wpx: %b) from %a ## value: %a\n" S.Var.pretty_trace y (HM.mem wpoint y) (Pretty.docOpt (S.Var.pretty_trace ())) x S.Dom.pretty d;
