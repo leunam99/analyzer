@@ -21,7 +21,7 @@ sig
   type value
   (** The abstract domain of values stored in the array. *)
 
-  val set: VDQ.t -> t -> Basetype.CilExp.t option * idx -> value -> t
+  val set: VDQ.t -> t -> Basetype.CilExp.t option * idx -> value -> varinfo option -> t
   (** Returns a new abstract value, where the given index is replaced with the
     * given element. *)
 
@@ -62,7 +62,7 @@ sig
   val domain_of_t: t -> domain
   (* Returns the domain used for the array*)
 
-  val get: ?checkBounds:bool -> VDQ.t -> t -> Basetype.CilExp.t option * idx -> value
+  val get: ?checkBounds:bool -> VDQ.t -> t -> Basetype.CilExp.t option * idx -> varinfo option -> value
   (** Returns the element residing at the given index. *)
 end
 

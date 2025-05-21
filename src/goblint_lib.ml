@@ -328,6 +328,7 @@ module Preprocessor = Preprocessor
 module CompilationDatabase = CompilationDatabase
 module MakefileUtil = MakefileUtil
 module TerminationPreprocessing = TerminationPreprocessing
+module BoundCheckPreprocessing = BoundCheckPreprocessing
 
 (** {2 Witnesses}
 
