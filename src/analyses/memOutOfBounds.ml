@@ -257,6 +257,94 @@ struct
     (* If the lval does not contain a pointer or if it does contain a pointer, but only points to string addresses, then no need to WARN *)
     if (not @@ lval_contains_a_ptr lval) || ptr_only_has_str_addr man (Lval lval) then ()
     else
+      (*check lower bound: get lower bound of offsets from allocations, then check that the offset is larger that that*)
+      (match lval with
+       | Var _, o -> ()
+       | Mem e, NoOffset -> begin
+           match BoundCheckPreprocessing.ptr_to_var_and_offset e with 
+           | None -> (set_mem_safety_flag InvalidDeref;
+                      M.warn "Pointer expression %a too complex. An invalid memory access might occur" d_exp e;
+                     ) 
+           | Some (v,index_expr) -> begin
+               let joined_addr_offset, access_offset = 
+                 let t = get_ptr_deref_type @@ typeOf e in 
+                 match t with 
+                 | None -> 
+                   if M.tracing then M.trace "oob" "no deref type for %a with type %a" d_exp (Lval lval) dn_type (typeOf (Lval lval));
+                   ID.top_of BoundCheckPreprocessing.ikind, ID.top_of BoundCheckPreprocessing.ikind
+                 | Some t ->
+                   match man.ask (Queries.MayPointTo (Lval (Var v, NoOffset))) with
+                   | a when not (Queries.AD.is_top a) ->
+                     if M.tracing then M.trace "oob" "may point to %a" Queries.AD.pretty a;
+                     let pts_list = Queries.AD.elements a in
+                     let pts_elems_to_idx acc (addr: Queries.AD.elt) =
+                       match addr with
+                       | Addr (_,o) -> ID.join acc @@ ID.cast_to BoundCheckPreprocessing.ikind @@ offs_to_idx t o
+                       | _ -> ID.top_of BoundCheckPreprocessing.ikind
+                     in
+                     (* the offset must be in this -> make sure that the index is larger than this ! *)
+                     let idx = match man.ask (Queries.EvalInt index_expr) with 
+                       | `Lifted idx -> ID.mul idx @@ ID.cast_to BoundCheckPreprocessing.ikind @@ size_of_type_in_bytes t
+                       | _ -> ID.top_of BoundCheckPreprocessing.ikind
+                     in
+                     List.fold_left pts_elems_to_idx (ID.bot_of BoundCheckPreprocessing.ikind) pts_list, idx
+                   | _ ->
+                     (set_mem_safety_flag InvalidDeref;
+                      M.warn "Pointer %a has a points-to-set of top. An invalid memory access might occur" d_exp (Lval lval);
+                      ID.top_of BoundCheckPreprocessing.ikind, ID.top_of BoundCheckPreprocessing.ikind) 
+               in
+               if M.tracing then M.trace "oob" "for %a, addresses have offset in %a, index is in %a" d_exp (Lval lval) ID.pretty joined_addr_offset ID.pretty access_offset; 
+               let lower_is_safe = ID.to_bool @@ ID.le (ID.neg joined_addr_offset) (ID.cast_to BoundCheckPreprocessing.ikind access_offset) in (*-addr_ofset <= access_offset*)
+               ( match lower_is_safe with 
+                 | None -> (set_mem_safety_flag InvalidDeref;
+                            M.warn "Memory accessed with offset %a and index (in bytes) %a. Memory before the array may be accessed" ID.pretty joined_addr_offset ID.pretty access_offset)
+                 | Some false -> (set_mem_safety_flag InvalidDeref;
+                                  M.warn "Memory accessed with offset %a and index (in bytes) %a. Memory before the array must be accessed" ID.pretty joined_addr_offset ID.pretty access_offset)
+                 | Some true -> M.info "lower bound of %a is save" d_exp (Lval lval) 
+               )
+             end
+         end
+       | _ -> failwith "TODO"
+      );
+    (*check upper bound*)
+    (*First, try the relational check, the fallback on the original one that can handle more cases*)
+    let safe = match lval with 
+      | Var v, off -> begin
+          match BoundCheckPreprocessing.offs_to_expr off, BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid with 
+          | None, _ 
+          | _, None -> false
+          | Some idx_expr, Some length_var -> 
+            if M.tracing then M.trace "oob" "idx_expr: %a" d_exp idx_expr;
+            let e_upper = BinOp (Lt,idx_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
+            if M.tracing then M.trace "oob" "query upper: %a" d_exp e_upper;
+            let fits_upper = VDQ.ID.to_bool @@ man.ask (EvalInt e_upper) in
+            if fits_upper <> Some true then false 
+            else ( if M.tracing then M.trace "oob" "query upper succeeded";
+                   VDQ.ID.leq (man.ask (EvalInt idx_expr)) (VDQ.ID.starting IULong Z.zero))
+        end
+      | Mem exp, o1 -> BatOption.is_some begin
+          let open GobOption.Syntax in
+          let* o1 = BoundCheckPreprocessing.offs_to_expr o1 in
+          if M.tracing then M.trace "oob" "off1 success";
+          let* (v,o2) = BoundCheckPreprocessing.ptr_to_var_and_offset exp in
+          if M.tracing then M.trace "oob" "ptr success";
+          let* length_var = BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid in
+          if M.tracing then M.trace "oob" "length_var success";
+          let idx_expr = BinOp (PlusA, o1, o2, BoundCheckPreprocessing.size_type ) in
+          if M.tracing then M.trace "oob" "idx_expr: %a" d_exp idx_expr;
+          let e_upper = BinOp (Lt,idx_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
+          if M.tracing then M.trace "oob" "query upper: %a" d_exp e_upper;
+          let fits_upper = VDQ.ID.to_bool @@ man.ask (EvalInt e_upper) in
+          if fits_upper <> Some true then None 
+          else ( 
+            if M.tracing then M.trace "oob" "query upper succeeded";
+            if VDQ.ID.leq (man.ask (EvalInt idx_expr)) (VDQ.ID.starting IULong Z.zero) 
+            then (check_exp_for_oob_access man ~is_implicitly_derefed exp; Some () )
+            else None
+          )
+        end
+    in if safe then M.info "upper bound of %a is save according to relations" d_exp (Lval lval) 
+    else
       (* If the lval doesn't indicate an explicit dereference, we still need to check for an implicit dereference *)
       (* An implicit dereference is, e.g., printf("%p", ptr), where ptr is a pointer *)
       match lval, is_implicitly_derefed with

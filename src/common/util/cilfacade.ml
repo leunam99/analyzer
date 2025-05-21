@@ -132,12 +132,42 @@ let visitors = ref []
 let register_preprocess name visitor_fun =
   visitors := !visitors @ [name, visitor_fun]
 
+let top_function = ref None 
+
 let do_preprocess ast =
   (* this has to be done here, since the settings aren't available when register_preprocess is called *)
   let active_visitors = List.filter_map (fun (name, visitor_fun) -> if List.mem name (get_string_list "ana.activated") then Some visitor_fun else None) !visitors in
   let f fd visitor_fun = ignore @@ visitCilFunction (visitor_fun fd) fd in
-  if active_visitors <> [] then
+  if active_visitors <> [] then (
+    iterGlobals ast (function GFun (fd,_) when fd.svar.vname = "__top" -> top_function := Some fd.svar | _ -> ());
+    (if !top_function = None then
+      let varinfo = (makeGlobalVar "__top" (TFun (TInt (ILongLong,[]), Some [], false, [Attr ("goblint_stub", [])]))) in
+      let loc = { line = -1;
+      file = "unknown";
+      byte = -1;
+      column = -1;
+      endLine = -1;
+      endByte = -1;
+      endColumn = -1;
+      synthetic = true;}
+      in
+      let fundec = { 
+        svar  = varinfo;
+        smaxid = 0;
+        slocals = [];
+        sformals = [];
+        sbody = mkBlock [];
+        smaxstmtid = None;
+        sallstmts = [];
+      } in 
+      let local = makeLocalVar fundec "x" (TInt (ILongLong,[])) in
+      fundec.sbody <- mkBlock [mkStmt (Return (Some (Lval( Var local, NoOffset)),loc, loc)) ];
+      ast.globals <- GFun (fundec, loc) :: ast.globals;
+      top_function := Some varinfo;
+      
+    );
     iterGlobals ast (function GFun (fd,_) -> List.iter (f fd) active_visitors | _ -> ())
+  )
 
 (** @raise GoblintCil.FrontC.ParseError
     @raise GoblintCil.Errormsg.Error *)

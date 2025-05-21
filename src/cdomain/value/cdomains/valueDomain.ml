@@ -766,11 +766,11 @@ struct
     |                 _ , Struct n     -> Struct (Structs.map (fun x -> invalidate_value ask voidType x) n)
     | TComp (ci,_)  , Union (`Lifted fd,n) -> Union (`Lifted fd, invalidate_value ask fd.ftype n)
     | TArray (t,_,_), Array n      ->
-      let v = invalidate_value ask t (CArrays.get ask n array_idx_top) in
-      Array (CArrays.set ask n (array_idx_top) v)
+      let v = invalidate_value ask t (CArrays.get ask n array_idx_top None) in
+      Array (CArrays.set ask n (array_idx_top) v None)
     |                 _ , Array n      ->
-      let v = invalidate_value ask voidType (CArrays.get ask n (array_idx_top)) in
-      Array (CArrays.set ask n (array_idx_top) v)
+      let v = invalidate_value ask voidType (CArrays.get ask n (array_idx_top) None) in
+      Array (CArrays.set ask n (array_idx_top) v None)
     |                 t , Blob n       -> Blob (Blobs.invalidate_value ask t n)
     |                 _ , Thread tid   -> Thread (Threads.join (Threads.top ()) tid)
     |                 _ , JmpBuf _     -> state (* TODO: no top jmpbuf *)
@@ -959,7 +959,11 @@ struct
               match x with
               | Array x ->
                 let e = determine_offset ask l o exp v in
-                do_eval_offset ask f (CArrays.get ask x (e, idx)) offs exp l' o' v t
+                let vinfo = match v with 
+                  | Some (Var v, _) -> Some v
+                  | _ -> None 
+                in
+                do_eval_offset ask f (CArrays.get ask x (e, idx) vinfo) offs exp l' o' v t
               | Address _ ->
                 begin
                   do_eval_offset ask f x offs exp l' o' v t (* this used to be `blob `address -> we ignore the index *)
@@ -1136,8 +1140,12 @@ struct
                       | TArray(t1 ,_,_) -> t1
                       | _ -> t) in (* This is necessary because t is not a TArray in case of calloc *)
                   let e = determine_offset ask l o exp (Some v) in
-                  let new_value_at_index = do_update_offset ask (CArrays.get ask x' (e,idx)) offs value exp l' o' v t in
-                  let new_array_value = CArrays.set ask x' (e, idx) new_value_at_index in
+                  let vinfo = match v with 
+                    | (Var v, _) -> Some v
+                    | _ -> raise Not_found
+                  in
+                  let new_value_at_index = do_update_offset ask (CArrays.get ask x' (e,idx) vinfo) offs value exp l' o' v t in
+                  let new_array_value = CArrays.set ask x' (e, idx) new_value_at_index vinfo in
                   Array new_array_value
                 | Bot ->
                   let t,len = (match Cil.unrollType t with
@@ -1146,7 +1154,11 @@ struct
                   let x' = CArrays.bot () in
                   let e = determine_offset ask l o exp (Some v) in
                   let new_value_at_index = do_update_offset ask Bot offs value exp l' o' v t in
-                  let new_array_value =  CArrays.set ask x' (e, idx) new_value_at_index in
+                  let vinfo = match v with 
+                    | (Var v, _) -> Some v
+                    | _ -> None 
+                  in
+                  let new_array_value =  CArrays.set ask x' (e, idx) new_value_at_index vinfo in
                   let len_ci = BatOption.bind len (fun e -> Cil.getInteger @@ Cil.constFold true e) in
                   let len_id = BatOption.map (IndexDomain.of_int (Cilfacade.ptrdiff_ikind ())) len_ci in
                   let newl = BatOption.default (ID.starting (Cilfacade.ptrdiff_ikind ()) Z.zero) len_id in

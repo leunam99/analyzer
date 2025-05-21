@@ -545,7 +545,7 @@ struct
     | Union (f,e) -> reachable_from_value ask e t description
     (* For arrays, we ask to read from an unknown index, this will cause it
      * join all its values. *)
-    | Array a -> reachable_from_value ask (ValueDomain.CArrays.get (Queries.to_value_domain_ask ask) a (None, ValueDomain.ArrIdxDomain.top ())) t description
+    | Array a -> reachable_from_value ask (ValueDomain.CArrays.get (Queries.to_value_domain_ask ask) a (None, ValueDomain.ArrIdxDomain.top ()) None) t description
     | Blob (e,_,_) -> reachable_from_value ask e t description
     | Struct s -> ValueDomain.Structs.fold (fun k v acc -> AD.join (reachable_from_value ask v t description) acc) s empty
     | Int _ -> empty
@@ -665,7 +665,7 @@ struct
         | Address adrs when AD.is_top adrs -> (empty,TS.bot (), true)
         | Address adrs -> (adrs,TS.bot (), AD.may_be_unknown adrs)
         | Union (t,e) -> with_field (reachable_from_value e) t
-        | Array a -> reachable_from_value (ValueDomain.CArrays.get (Queries.to_value_domain_ask (Analyses.ask_of_man man)) a (None, ValueDomain.ArrIdxDomain.top ()))
+        | Array a -> reachable_from_value (ValueDomain.CArrays.get (Queries.to_value_domain_ask (Analyses.ask_of_man man)) a (None, ValueDomain.ArrIdxDomain.top ()) None)
         | Blob (e,_,_) -> reachable_from_value e
         | Struct s ->
           let join_tr (a1,t1,_) (a2,t2,_) = AD.join a1 a2, TS.join t1 t2, false in
@@ -1491,7 +1491,7 @@ struct
             (match r with
              | Array a ->
                (* unroll into array for Calloc calls *)
-               (match ValueDomain.CArrays.get (Queries.to_value_domain_ask (Analyses.ask_of_man man)) a (None, (IdxDom.of_int (Cilfacade.ptrdiff_ikind ()) Z.zero)) with
+               (match ValueDomain.CArrays.get (Queries.to_value_domain_ask (Analyses.ask_of_man man)) a (None, (IdxDom.of_int (Cilfacade.ptrdiff_ikind ()) Z.zero)) None with
                 | Blob (_,s,_) -> `Lifted s
                 | _ -> Queries.Result.top q
                )
