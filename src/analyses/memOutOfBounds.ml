@@ -260,8 +260,8 @@ struct
       (*check lower bound: get lower bound of offsets from allocations, then check that the offset is larger that that*)
       (match lval with
        | Var _, o -> ()
-       | Mem e, NoOffset -> begin
-           match BoundCheckPreprocessing.ptr_to_var_and_offset e with 
+       | Mem e, o -> begin
+           match BoundCheckPreprocessing.ptr_to_var_and_offset ~additional_offset:o (Lval lval) with 
            | None -> (set_mem_safety_flag InvalidDeref;
                       M.warn "Pointer expression %a too complex. An invalid memory access might occur" d_exp e;
                      ) 
@@ -324,21 +324,18 @@ struct
         end
       | Mem exp, o1 -> BatOption.is_some begin
           let open GobOption.Syntax in
-          let* o1 = BoundCheckPreprocessing.offs_to_expr o1 in
-          if M.tracing then M.trace "oob" "off1 success";
-          let* (v,o2) = BoundCheckPreprocessing.ptr_to_var_and_offset exp in
+          let* (v,index_expr) = BoundCheckPreprocessing.ptr_to_var_and_offset ~additional_offset:o1 exp in
           if M.tracing then M.trace "oob" "ptr success";
           let* length_var = BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid in
           if M.tracing then M.trace "oob" "length_var success";
-          let idx_expr = BinOp (PlusA, o1, o2, BoundCheckPreprocessing.size_type ) in
-          if M.tracing then M.trace "oob" "idx_expr: %a" d_exp idx_expr;
-          let e_upper = BinOp (Lt,idx_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
+          if M.tracing then M.trace "oob" "idx_expr: %a" d_exp index_expr;
+          let e_upper = BinOp (Lt,index_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
           if M.tracing then M.trace "oob" "query upper: %a" d_exp e_upper;
           let fits_upper = VDQ.ID.to_bool @@ man.ask (EvalInt e_upper) in
           if fits_upper <> Some true then None 
           else ( 
             if M.tracing then M.trace "oob" "query upper succeeded";
-            if VDQ.ID.leq (man.ask (EvalInt idx_expr)) (VDQ.ID.starting IULong Z.zero) 
+            if VDQ.ID.leq (man.ask (EvalInt index_expr)) (VDQ.ID.starting IULong Z.zero) 
             then (check_exp_for_oob_access man ~is_implicitly_derefed exp; Some () )
             else None
           )

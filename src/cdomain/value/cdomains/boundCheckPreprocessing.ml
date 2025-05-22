@@ -19,38 +19,38 @@ let ikind = ILongLong
 let size_type = TInt (ikind,[]) (*should be larger than size_t, and signed so that overflow is not a problem *)
 
 let rec offs_to_expr offs = 
-  let typ = size_type in
   match offs with 
-  | NoOffset -> Some (mkCast ~e:zero ~newt:typ)
-  | Field _ -> None
+  | NoOffset 
+  | Field (_, NoOffset) -> Some (mkCast ~e:zero ~newt:size_type)
+  | Field _ -> None (*TODO this might contain another array access, but with a different type, so we can not handle it easily*)
   | Index (exp,offs') -> 
     let rest = offs_to_expr offs' in
-    BatOption.map (fun rest -> BinOp (PlusA,mkCast ~e:exp ~newt:typ, rest, typ)) rest
+    BatOption.map (fun rest -> BinOp (PlusA,mkCast ~e:exp ~newt:size_type, rest, size_type)) rest
 
-let rec ptr_to_var_and_offset exp = 
+let rec ptr_to_var_and_offset ?additional_offset exp  = 
   match exp with 
   | StartOf (Var v, off) 
-  | Lval (Var v, off) -> BatOption.map (fun off -> (v, off)) @@ offs_to_expr off 
+  | Lval (Var v, off) -> BatOption.map (fun off -> (v, off)) @@ offs_to_expr @@ BatOption.map_default (addOffset off) off additional_offset
   | CastE _ -> None (*TODO?*)
   | BinOp (IndexPI, ptr_expr, offs_expr, _)
   | BinOp (PlusPI , ptr_expr, offs_expr, _) -> begin
-      match ptr_to_var_and_offset ptr_expr with 
+      match ptr_to_var_and_offset ?additional_offset ptr_expr with 
       | None -> None
       | Some (v,o) -> Some (v, BinOp (PlusA, o, mkCast ~e:offs_expr ~newt:size_type, size_type))
     end
   | BinOp (MinusPI , ptr_expr, offs_expr, _) -> begin
-      match ptr_to_var_and_offset ptr_expr with 
+      match ptr_to_var_and_offset ?additional_offset ptr_expr with 
       | None -> None
       | Some (v,o) -> Some (v, BinOp (MinusA, o, mkCast ~e:offs_expr ~newt:size_type, size_type))
     end
   | _ -> None  (*do not result in a pointer, (or only multidimensional)*)
 
-let ptr_to_var_and_offset exp = 
-  let res = ptr_to_var_and_offset exp in
+let ptr_to_var_and_offset ?additional_offset exp = 
+  let res = ptr_to_var_and_offset ?additional_offset exp in
   (if M.tracing then 
      match res with
      | None -> M.trace "oob" "expr %a not valid" d_exp exp
-     | Some (v, e) -> M.trace "oob" "expr %a converted to var %a and offset %a" d_exp exp d_lval (Var v, NoOffset) d_exp e);
+     | Some (v, e) -> M.trace "oob" "expr %a + offs ? converted to var %a and offset %a" d_exp exp d_lval (Var v, NoOffset) d_exp e);
   res
 
 let mapping = BatHashtbl.create (100)
