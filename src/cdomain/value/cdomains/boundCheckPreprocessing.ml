@@ -2,14 +2,15 @@ open GoblintCil
 
 module  M = Messages
 
-let has_right_type var = 
+let is_applicable var = 
+  not (hasAttribute "goblint_cil_nested" var.vattr) && (*might get deallocated in the middle of the function*)
   match var.vtype with
   | TPtr _
   | TArray _ -> true
   | _ -> false
 
-let has_right_type var = 
-  let res = has_right_type var in
+let is_applicable var = 
+  let res = is_applicable var in
   if M.tracing then M.trace "length_vars" "accepting var: %a %b" d_global (GVar (var, {init=None}, locUnknown)) res ;
   res
 
@@ -60,7 +61,7 @@ class definitionVisitor pointer_vars excluded = object(self)
 
   method! vvdec var = 
     (*TODO: instead, we could also match on actual uses of indexing *)
-    if has_right_type var then 
+    if is_applicable var then 
       pointer_vars := BatSet.add var !pointer_vars;
     DoChildren
 
