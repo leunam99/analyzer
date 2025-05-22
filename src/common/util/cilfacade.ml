@@ -121,7 +121,7 @@ let cleanDumpFile (pp: cilPrinter) (out : out_channel) (outfile: string) file =
 
 let print (fileAST: file) =
   match GobConfig.get_string "dbg.justcil-printer" with
-  | "default" -> dumpFile defaultCilPrinter stdout "stdout" fileAST
+  | "default" -> dumpFile plainCilPrinter stdout "stdout" fileAST
   | "clean" -> cleanDumpFile cleanCilPrinter stdout "stdout" fileAST
   | _ -> assert false
 
@@ -141,30 +141,30 @@ let do_preprocess ast =
   if active_visitors <> [] then (
     iterGlobals ast (function GFun (fd,_) when fd.svar.vname = "__top" -> top_function := Some fd.svar | _ -> ());
     (if !top_function = None then
-      let varinfo = (makeGlobalVar "__top" (TFun (TInt (ILongLong,[]), Some [], false, [Attr ("goblint_stub", [])]))) in
-      let loc = { line = -1;
-      file = "unknown";
-      byte = -1;
-      column = -1;
-      endLine = -1;
-      endByte = -1;
-      endColumn = -1;
-      synthetic = true;}
-      in
-      let fundec = { 
-        svar  = varinfo;
-        smaxid = 0;
-        slocals = [];
-        sformals = [];
-        sbody = mkBlock [];
-        smaxstmtid = None;
-        sallstmts = [];
-      } in 
-      let local = makeLocalVar fundec "x" (TInt (ILongLong,[])) in
-      fundec.sbody <- mkBlock [mkStmt (Return (Some (Lval( Var local, NoOffset)),loc, loc)) ];
-      ast.globals <- GFun (fundec, loc) :: ast.globals;
-      top_function := Some varinfo;
-      
+       let varinfo = (makeGlobalVar "__top" (TFun (TInt (ILongLong,[]), Some [], false, [Attr ("goblint_stub", [])]))) in
+       let loc = { line = -1;
+                   file = "unknown";
+                   byte = -1;
+                   column = -1;
+                   endLine = -1;
+                   endByte = -1;
+                   endColumn = -1;
+                   synthetic = true;}
+       in
+       let fundec = { 
+         svar  = varinfo;
+         smaxid = 0;
+         slocals = [];
+         sformals = [];
+         sbody = mkBlock [];
+         smaxstmtid = None;
+         sallstmts = [];
+       } in 
+       let local = makeLocalVar fundec "x" (TInt (ILongLong,[])) in
+       fundec.sbody <- mkBlock [mkStmt (Return (Some (Lval( Var local, NoOffset)),loc, loc)) ];
+       ast.globals <- GFun (fundec, loc) :: ast.globals;
+       top_function := Some varinfo;
+
     );
     iterGlobals ast (function GFun (fd,_) -> List.iter (f fd) active_visitors | _ -> ())
   )

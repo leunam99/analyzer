@@ -261,7 +261,7 @@ struct
       (match lval with
        | Var _, o -> ()
        | Mem e, o -> begin
-           match BoundCheckPreprocessing.ptr_to_var_and_offset ~additional_offset:o (Lval lval) with 
+           match BoundCheckPreprocessing.ptr_to_var_and_offset ~additional_offset:o e with 
            | None -> (set_mem_safety_flag InvalidDeref;
                       M.warn "Pointer expression %a too complex. An invalid memory access might occur" d_exp e;
                      ) 
