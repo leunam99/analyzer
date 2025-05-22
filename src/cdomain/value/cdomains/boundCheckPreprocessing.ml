@@ -30,8 +30,8 @@ let rec offs_to_expr offs =
 let rec ptr_to_var_and_offset ?additional_offset exp  = 
   match exp with 
   | StartOf (Var v, off) 
-  | Lval (Var v, off) -> BatOption.map (fun off -> (v, off)) @@ offs_to_expr @@ BatOption.map_default (addOffset off) off additional_offset
-  | CastE _ -> None (*TODO?*)
+  | Lval (Var v, off) -> BatOption.map (fun off -> M.trace "oob" "basecase Some"; (v, off)) @@ offs_to_expr @@ BatOption.map_default (addOffset off) off additional_offset
+  | CastE _ -> M.trace "oob" "expr %a cast" d_exp exp; None (*TODO?*)
   | BinOp (IndexPI, ptr_expr, offs_expr, _)
   | BinOp (PlusPI , ptr_expr, offs_expr, _) -> begin
       match ptr_to_var_and_offset ?additional_offset ptr_expr with 
@@ -43,7 +43,7 @@ let rec ptr_to_var_and_offset ?additional_offset exp  =
       | None -> None
       | Some (v,o) -> Some (v, BinOp (MinusA, o, mkCast ~e:offs_expr ~newt:size_type, size_type))
     end
-  | _ -> None  (*do not result in a pointer, (or only multidimensional)*)
+  | _ -> M.trace "oob" "expr %a not matched" d_exp exp; None  (*do not result in a pointer, (or only multidimensional)*)
 
 let ptr_to_var_and_offset ?additional_offset exp = 
   let res = ptr_to_var_and_offset ?additional_offset exp in
