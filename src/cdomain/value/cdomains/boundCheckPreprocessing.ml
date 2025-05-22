@@ -181,6 +181,8 @@ class arrayVisitor (fd : fundec) = object(self)
     BatSet.iter ( fun var ->
         let length_var = Cil.makeLocalVar fd (length_var_name var) size_type in
         BatHashtbl.add mapping var.vid length_var;
+        (*the only purpose of this variable is to be tracked by the relational domains, so make sure they do*)
+        length_var.vattr <- [Attr ("goblint_relation_track", [])]; 
         if not var.vhasdeclinstruction then (
           match var.vtype with
           | TArray (t,Some l,a) -> 
