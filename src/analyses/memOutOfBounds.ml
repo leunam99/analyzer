@@ -256,7 +256,7 @@ struct
   and check_lval_for_oob_access man ?(is_implicitly_derefed = false) lval =
     (* If the lval does not contain a pointer or if it does contain a pointer, but only points to string addresses, then no need to WARN *)
     if (not @@ lval_contains_a_ptr lval) || ptr_only_has_str_addr man (Lval lval) then ()
-    else
+    else begin
       (*check lower bound: get lower bound of offsets from allocations, then check that the offset is larger that that*)
       (match lval with
        | Var _, o -> ()
@@ -304,93 +304,93 @@ struct
                )
              end
          end
-       | _ -> failwith "TODO"
       );
-    (*check upper bound*)
-    (*First, try the relational check, the fallback on the original one that can handle more cases*)
-    let safe = match lval with 
-      | Var v, off -> begin
-          match BoundCheckPreprocessing.offs_to_expr off, BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid with 
-          | None, _ 
-          | _, None -> false
-          | Some idx_expr, Some length_var -> 
-            if M.tracing then M.trace "oob" "idx_expr: %a" d_exp idx_expr;
-            let e_upper = BinOp (Lt,idx_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
+      (*check upper bound*)
+      (*First, try the relational check, the fallback on the original one that can handle more cases*)
+      let safe = match lval with 
+        | Var v, off -> begin
+            match BoundCheckPreprocessing.offs_to_expr off, BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid with 
+            | None, _ 
+            | _, None -> false
+            | Some idx_expr, Some length_var -> 
+              if M.tracing then M.trace "oob" "idx_expr: %a" d_exp idx_expr;
+              let e_upper = BinOp (Lt,idx_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
+              if M.tracing then M.trace "oob" "query upper: %a" d_exp e_upper;
+              let fits_upper = VDQ.ID.to_bool @@ man.ask (EvalInt e_upper) in
+              if fits_upper <> Some true then false 
+              else ( if M.tracing then M.trace "oob" "query upper succeeded";
+                     VDQ.ID.leq (man.ask (EvalInt idx_expr)) (VDQ.ID.starting IULong Z.zero))
+          end
+        | Mem exp, o1 -> BatOption.is_some begin
+            let open GobOption.Syntax in
+            let* (v,index_expr) = BoundCheckPreprocessing.ptr_to_var_and_offset ~additional_offset:o1 exp in
+            if M.tracing then M.trace "oob" "ptr success";
+            let* length_var = BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid in
+            if M.tracing then M.trace "oob" "length_var success";
+            if M.tracing then M.trace "oob" "idx_expr: %a" d_exp index_expr;
+            let e_upper = BinOp (Lt,index_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
             if M.tracing then M.trace "oob" "query upper: %a" d_exp e_upper;
             let fits_upper = VDQ.ID.to_bool @@ man.ask (EvalInt e_upper) in
-            if fits_upper <> Some true then false 
-            else ( if M.tracing then M.trace "oob" "query upper succeeded";
-                   VDQ.ID.leq (man.ask (EvalInt idx_expr)) (VDQ.ID.starting IULong Z.zero))
-        end
-      | Mem exp, o1 -> BatOption.is_some begin
-          let open GobOption.Syntax in
-          let* (v,index_expr) = BoundCheckPreprocessing.ptr_to_var_and_offset ~additional_offset:o1 exp in
-          if M.tracing then M.trace "oob" "ptr success";
-          let* length_var = BatHashtbl.find_option BoundCheckPreprocessing.mapping v.vid in
-          if M.tracing then M.trace "oob" "length_var success";
-          if M.tracing then M.trace "oob" "idx_expr: %a" d_exp index_expr;
-          let e_upper = BinOp (Lt,index_expr,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
-          if M.tracing then M.trace "oob" "query upper: %a" d_exp e_upper;
-          let fits_upper = VDQ.ID.to_bool @@ man.ask (EvalInt e_upper) in
-          if fits_upper <> Some true then None 
-          else ( 
-            if M.tracing then M.trace "oob" "query upper succeeded";
-            if VDQ.ID.leq (man.ask (EvalInt index_expr)) (VDQ.ID.starting IULong Z.zero) 
-            then (check_exp_for_oob_access man ~is_implicitly_derefed exp; Some () )
-            else None
-          )
-        end
-    in if safe then M.info "upper bound of %a is save according to relations" d_exp (Lval lval) 
-    else
-      (* If the lval doesn't indicate an explicit dereference, we still need to check for an implicit dereference *)
-      (* An implicit dereference is, e.g., printf("%p", ptr), where ptr is a pointer *)
-      match lval, is_implicitly_derefed with
-      | (Var _, _), false -> ()
-      | (Var v, _), true -> check_no_binop_deref man (Lval lval)
-      | (Mem e, o), _ ->
-        let ptr_deref_type = get_ptr_deref_type @@ typeOf e in
-        let offs_intdom = begin match ptr_deref_type with
-          | Some t -> cil_offs_to_idx man t o
-          | None -> ID.bot_of @@ Cilfacade.ptrdiff_ikind ()
-        end in
-        let e_size = get_size_of_ptr_target man e in
-        let () = begin match e_size with
-          | `Top ->
-            (set_mem_safety_flag InvalidDeref;
-             M.warn "Size of lval dereference expression %a is top. Out-of-bounds memory access may occur" d_exp e)
-          | `Bot ->
-            (set_mem_safety_flag InvalidDeref;
-             M.warn "Size of lval dereference expression %a is bot. Out-of-bounds memory access may occur" d_exp e)
-          | `Lifted es ->
-            let casted_es = ID.cast_to (Cilfacade.ptrdiff_ikind ()) es in
-            let casted_offs = ID.cast_to (Cilfacade.ptrdiff_ikind ()) offs_intdom in
-            let ptr_size_lt_offs =
+            if fits_upper <> Some true then None 
+            else ( 
+              if M.tracing then M.trace "oob" "query upper succeeded";
+              if VDQ.ID.leq (man.ask (EvalInt index_expr)) (VDQ.ID.starting IULong Z.zero) 
+              then (check_exp_for_oob_access man ~is_implicitly_derefed exp; Some () )
+              else None
+            )
+          end
+      in if safe then M.info "upper bound of %a is save according to relations" d_exp (Lval lval) 
+      else
+        (* If the lval doesn't indicate an explicit dereference, we still need to check for an implicit dereference *)
+        (* An implicit dereference is, e.g., printf("%p", ptr), where ptr is a pointer *)
+        match lval, is_implicitly_derefed with
+        | (Var _, _), false -> ()
+        | (Var v, _), true -> if M.tracing then M.trace "oob" "check because implicit"; check_no_binop_deref man (Lval lval)
+        | (Mem e, o), _ ->
+          let ptr_deref_type = get_ptr_deref_type @@ typeOf e in
+          let offs_intdom = begin match ptr_deref_type with
+            | Some t -> cil_offs_to_idx man t o
+            | None -> ID.bot_of @@ Cilfacade.ptrdiff_ikind ()
+          end in
+          let e_size = get_size_of_ptr_target man e in
+          let () = begin match e_size with
+            | `Top ->
+              (set_mem_safety_flag InvalidDeref;
+               M.warn "Size of lval dereference expression %a is top. Out-of-bounds memory access may occur" d_exp e)
+            | `Bot ->
+              (set_mem_safety_flag InvalidDeref;
+               M.warn "Size of lval dereference expression %a is bot. Out-of-bounds memory access may occur" d_exp e)
+            | `Lifted es ->
+              let casted_es = ID.cast_to (Cilfacade.ptrdiff_ikind ()) es in
               let one = intdom_of_int 1 in
               let casted_es = ID.sub casted_es one in
-              begin try ID.lt casted_es casted_offs
-                with IntDomain.ArithmeticOnIntegerBot _ -> ID.bot_of @@ Cilfacade.ptrdiff_ikind ()
+              let casted_offs = ID.cast_to (Cilfacade.ptrdiff_ikind ()) offs_intdom in
+              let ptr_size_lt_offs =
+                begin try ID.lt casted_es casted_offs
+                  with IntDomain.ArithmeticOnIntegerBot _ -> ID.bot_of @@ Cilfacade.ptrdiff_ikind ()
+                end
+              in
+              let behavior = Undefined MemoryOutOfBoundsAccess in
+              let cwe_number = 823 in
+              begin match ID.to_bool ptr_size_lt_offs with
+                | Some true ->
+                  (set_mem_safety_flag InvalidDeref;
+                   M.warn ~category:(Behavior behavior) ~tags:[CWE cwe_number] "Size of lval dereference expression is %a (in bytes). It is offset by %a (in bytes). Memory out-of-bounds access must occur" ID.pretty casted_es ID.pretty casted_offs)
+                | Some false -> ()
+                | None ->
+                  (set_mem_safety_flag InvalidDeref;
+                   M.warn ~category:(Behavior behavior) ~tags:[CWE cwe_number] "Could not compare size of lval dereference expression (%a) (in bytes) with offset by (%a) (in bytes). Memory out-of-bounds access might occur" ID.pretty casted_es ID.pretty casted_offs)
               end
-            in
-            let behavior = Undefined MemoryOutOfBoundsAccess in
-            let cwe_number = 823 in
-            begin match ID.to_bool ptr_size_lt_offs with
-              | Some true ->
-                (set_mem_safety_flag InvalidDeref;
-                 M.warn ~category:(Behavior behavior) ~tags:[CWE cwe_number] "Size of lval dereference expression is %a (in bytes). It is offset by %a (in bytes). Memory out-of-bounds access must occur" ID.pretty casted_es ID.pretty casted_offs)
-              | Some false -> ()
-              | None ->
-                (set_mem_safety_flag InvalidDeref;
-                 M.warn ~category:(Behavior behavior) ~tags:[CWE cwe_number] "Could not compare size of lval dereference expression (%a) (in bytes) with offset by (%a) (in bytes). Memory out-of-bounds access might occur" ID.pretty casted_es ID.pretty casted_offs)
-            end
-        end in
-        begin match e with
-          | Lval (Var v, _) as lval_exp -> check_no_binop_deref man lval_exp
-          | BinOp (binop, e1, e2, t) when binop = PlusPI || binop = MinusPI || binop = IndexPI ->
-            check_binop_exp man binop e1 e2 t;
-            check_exp_for_oob_access man ~is_implicitly_derefed e1;
-            check_exp_for_oob_access man ~is_implicitly_derefed e2
-          | _ -> check_exp_for_oob_access man ~is_implicitly_derefed e
-        end
+          end in
+          begin match e with
+            | Lval (Var v, _) as lval_exp -> check_no_binop_deref man lval_exp
+            | BinOp (binop, e1, e2, t) when binop = PlusPI || binop = MinusPI || binop = IndexPI ->
+              check_binop_exp man binop e1 e2 t;
+              check_exp_for_oob_access man ~is_implicitly_derefed e1;
+              check_exp_for_oob_access man ~is_implicitly_derefed e2
+            | _ -> check_exp_for_oob_access man ~is_implicitly_derefed e
+          end
+    end
 
   and check_no_binop_deref man lval_exp =
     check_unknown_addr_deref man lval_exp;
