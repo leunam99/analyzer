@@ -106,7 +106,7 @@ class instructionTransformer (vars) = object(self)
           :: (Set ((Var array, NoOffset), CastE (TPtr (typ,_),Lval(Var tmp2, NoOffset)), loc_set,_) as set)(* array = (type* ) tmp*)
           :: xs
           when tmp.vid = tmp2.vid 
-            && (f.vname = "malloc" || f.vname = "alloca") (*TODO more robust identification needed?*)
+            && (f.vname = "malloc" || f.vname = "alloca" || List.mem f.vname (GobConfig.get_string_list "ana.malloc.wrappers") ) (*TODO more robust identification needed?*)
             && BatSet.mem array vars ->
           call
           :: set
