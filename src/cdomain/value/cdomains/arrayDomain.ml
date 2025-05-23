@@ -832,7 +832,7 @@ end
 
 (* This is the main array out of bounds check *)
 let array_oob_check ( type a ) (module Idx: IntDomain.Z with type t = a) (ask : VDQ.t) (x, l) (e, v) (var:varinfo option)=
-  if GobConfig.get_bool "ana.arrayoob" then (* The purpose of the following 2 lines is to give the user extra info about the array oob *)
+  if GobConfig.get_bool "ana.arrayoob" && !AnalysisState.postsolving then (* The purpose of the following 2 lines is to give the user extra info about the array oob *)
     let idx_before_end = Idx.to_bool (Idx.lt v l) (* check whether index is before the end of the array *)
     and idx_after_start = Idx.to_bool (Idx.ge v (Idx.of_int (Cilfacade.ptrdiff_ikind ()) Z.zero)) in (* check whether the index is non-negative *)
     if M.tracing then M.trace "oob" "normal check, var: %s" (BatOption.map_default (fun v -> v.vname ) "no var" var);
