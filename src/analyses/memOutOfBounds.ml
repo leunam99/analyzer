@@ -547,43 +547,47 @@ struct
   (* TRANSFER FUNCTIONS *)
 
   let assign man (lval:lval) (rval:exp) : D.t =
-    check_lval_for_oob_access man lval;
-    check_exp_for_oob_access man rval;
+    if !AnalysisState.postsolving then (
+      check_lval_for_oob_access man lval;
+      check_exp_for_oob_access man rval
+    );
     man.local
 
   let branch man (exp:exp) (tv:bool) : D.t =
-    check_exp_for_oob_access man exp;
+    if !AnalysisState.postsolving then check_exp_for_oob_access man exp;
     man.local
 
   let return man (exp:exp option) (f:fundec) : D.t =
-    Option.iter (fun x -> check_exp_for_oob_access man x) exp;
+    if !AnalysisState.postsolving then Option.iter (fun x -> check_exp_for_oob_access man x) exp;
     man.local
 
   let special man (lval:lval option) (f:varinfo) (arglist:exp list) : D.t =
-    let desc = LibraryFunctions.find f in
-    let is_arg_implicitly_derefed arg =
-      let read_shallow_args = LibraryDesc.Accesses.find desc.accs { kind = Read; deep = false } arglist in
-      let read_deep_args = LibraryDesc.Accesses.find desc.accs { kind = Read; deep = true } arglist in
-      let write_shallow_args = LibraryDesc.Accesses.find desc.accs { kind = Write; deep = false } arglist in
-      let write_deep_args = LibraryDesc.Accesses.find desc.accs { kind = Write; deep = true } arglist in
-      List.mem arg read_shallow_args || List.mem arg read_deep_args || List.mem arg write_shallow_args || List.mem arg write_deep_args
-    in
-    Option.iter (fun x -> check_lval_for_oob_access man x) lval;
-    List.iter (fun arg -> check_exp_for_oob_access man ~is_implicitly_derefed:(is_arg_implicitly_derefed arg) arg) arglist;
-    (* Check calls to memset and memcpy for out-of-bounds-accesses *)
-    match desc.special arglist with
-    | Memset { dest; ch; count; } -> check_count man f.vname dest count;
-    | Memcpy { dest; src; n = count; } ->
-      (check_count man f.vname src count;
-       check_count man f.vname dest count;)
-    | _ -> man.local
+    if !AnalysisState.postsolving then begin
+      let desc = LibraryFunctions.find f in
+      let is_arg_implicitly_derefed arg =
+        let read_shallow_args = LibraryDesc.Accesses.find desc.accs { kind = Read; deep = false } arglist in
+        let read_deep_args = LibraryDesc.Accesses.find desc.accs { kind = Read; deep = true } arglist in
+        let write_shallow_args = LibraryDesc.Accesses.find desc.accs { kind = Write; deep = false } arglist in
+        let write_deep_args = LibraryDesc.Accesses.find desc.accs { kind = Write; deep = true } arglist in
+        List.mem arg read_shallow_args || List.mem arg read_deep_args || List.mem arg write_shallow_args || List.mem arg write_deep_args
+      in
+      Option.iter (fun x -> check_lval_for_oob_access man x) lval;
+      List.iter (fun arg -> check_exp_for_oob_access man ~is_implicitly_derefed:(is_arg_implicitly_derefed arg) arg) arglist;
+      (* Check calls to memset and memcpy for out-of-bounds-accesses *)
+      match desc.special arglist with
+      | Memset { dest; ch; count; } -> check_count man f.vname dest count;
+      | Memcpy { dest; src; n = count; } ->
+        (check_count man f.vname src count;
+         check_count man f.vname dest count;)
+      | _ -> man.local
+    end; () 
 
   let enter man (lval: lval option) (f:fundec) (args:exp list) : (D.t * D.t) list =
-    List.iter (fun arg -> check_exp_for_oob_access man arg) args;
+    if !AnalysisState.postsolving then List.iter (fun arg -> check_exp_for_oob_access man arg) args;
     [man.local, man.local]
 
   let combine_assign man (lval:lval option) fexp (f:fundec) (args:exp list) fc (callee_local:D.t) (f_ask:Queries.ask) : D.t =
-    Option.iter (fun x -> check_lval_for_oob_access man x) lval;
+    if !AnalysisState.postsolving then Option.iter (fun x -> check_lval_for_oob_access man x) lval;
     man.local
 
   let startstate v = ()

@@ -2,9 +2,74 @@ open GoblintCil
 
 module  M = Messages
 
+let top_function = ref None 
+
+let find_top_fun ast = 
+  iterGlobals ast (function GFun (fd,_) when fd.svar.vname = "__top" -> top_function := Some fd.svar | _ -> ());
+  (if !top_function = None then
+     let varinfo = (makeGlobalVar "__top" (TFun (TInt (ILongLong,[]), Some [], false, [Attr ("goblint_stub", [])]))) in
+     let loc = { line = -1;
+                 file = "unknown";
+                 byte = -1;
+                 column = -1;
+                 endLine = -1;
+                 endByte = -1;
+                 endColumn = -1;
+                 synthetic = true;}
+     in
+     let fundec = { 
+       svar  = varinfo;
+       smaxid = 0;
+       slocals = [];
+       sformals = [];
+       sbody = mkBlock [];
+       smaxstmtid = None;
+       sallstmts = [];
+     } in 
+     let local = makeLocalVar fundec "x" (TInt (ILongLong,[])) in
+     fundec.sbody <- mkBlock [mkStmt (Return (Some (Lval( Var local, NoOffset)),loc, loc)) ];
+     ast.globals <- GFun (fundec, loc) :: ast.globals;
+     top_function := Some varinfo;
+
+  )
+
+let applicable_functions = ref BatSet.empty
+
+class applicable_functions_visitor included excluded = object(self)
+  inherit nopCilVisitor
+
+  method! vvdec var = 
+    (match var.vtype with 
+     | TFun _ -> 
+       if not (List.mem var.vname (GobConfig.get_string_list "mainfun")
+               || List.mem var.vname (GobConfig.get_string_list "exitfun")
+               || LibraryFunctions.is_special var
+              ) then
+         included := BatSet.add var !included
+     | _ -> ()
+    );
+    DoChildren
+
+  method! vexpr = function
+    | AddrOf (Var v,_) -> begin 
+        match v.vtype with 
+        | TFun _ ->
+          (*If we allow for address to be taken, we would need to handle dynamic calls*)
+          excluded := BatSet.add v !excluded; DoChildren
+        | _ -> DoChildren (*for arrays we do not care as they can not change size*)
+      end
+    | _ -> DoChildren
+end
+
+let find_applicable_functions ast =
+  let inc = ref BatSet.empty in
+  let exc = ref BatSet.empty in
+  visitCilFileSameGlobals (new applicable_functions_visitor inc exc) ast;
+  applicable_functions := BatSet.diff !inc !exc
+
 let is_applicable var = 
   not (hasAttribute "goblint_cil_nested" var.vattr) && (*might get deallocated in the middle of the function*)
-  match var.vtype with
+  match unrollType var.vtype with
   | TPtr _
   | TArray _ -> true
   | _ -> false
@@ -65,9 +130,15 @@ class definitionVisitor pointer_vars excluded = object(self)
       pointer_vars := BatSet.add var !pointer_vars;
     DoChildren
 
-  (*If we allow for pointer to be taken, we would need to track if the pointer is changed through another pointer*)
   method! vexpr = function
-    | AddrOf (Var v,_) -> excluded := BatSet.add v !excluded; DoChildren
+    | AddrOf (Var v,_) -> begin 
+        match v.vtype with 
+        | TFun _ 
+        | TArray _ ->
+          (*If we allow for address to be taken, we would need to track if the pointer is changed through another pointer*)
+          excluded := BatSet.add v !excluded; DoChildren
+        | _ -> DoChildren 
+      end
     | _ -> DoChildren
 end
 
@@ -98,7 +169,7 @@ class instructionTransformer (vars) = object(self)
         | Some t -> BinOp (Div,mkCast ~e:arg_exp ~newt:size_type,mkCast ~e:(SizeOf t) ~newt:size_type,size_type)
       in Set ((Var var, NoOffset), exp, loc, loc)
     in
-    let set_var_top var loc = Call (Some (Var var, NoOffset), (Lval(Var (BatOption.get !Cilfacade.top_function), NoOffset)), [], loc, loc) in
+    let set_var_top var loc = Call (Some (Var var, NoOffset), (Lval(Var (BatOption.get !top_function), NoOffset)), [], loc, loc) in
     match stmt.skind with
     | Instr instr -> 
       let rec transform_instructions ins = begin 
@@ -168,6 +239,8 @@ class instructionTransformer (vars) = object(self)
 
 end
 
+let function_argument_changes = BatHashtbl.create 100
+
 class arrayVisitor (fd : fundec) = object(self)
   inherit nopCilVisitor
 
@@ -180,7 +253,18 @@ class arrayVisitor (fd : fundec) = object(self)
     ignore @@ visitCilFunction def_visitor fd;
     pointers := BatSet.diff !pointers !excluded;
     BatSet.iter ( fun var ->
-        let length_var = Cil.makeLocalVar fd (length_var_name var) size_type in
+        let length_var = 
+          if List.mem var fd.sformals then 
+            let (set,orig_formals) = BatHashtbl.find_default function_argument_changes fd.svar.vid (BatSet.empty, fd.sformals) in
+            let formal = Cil.makeFormalVar fd ~where:var.vname (length_var_name var) size_type in
+            let index = fst @@ BatList.findi (fun _ v -> v.vid = var.vid) orig_formals in
+            if M.tracing then M.trace "call_tfm" "adding length var at argument %d in function %s" index fd.svar.vname;  
+            (*save the positions of the arguments for which we add length variables*)
+            BatHashtbl.replace function_argument_changes fd.svar.vid (BatSet.add index set, orig_formals);
+            formal
+          else
+            Cil.makeLocalVar fd (length_var_name var) size_type 
+        in
         BatHashtbl.add mapping var.vid length_var;
         (*the only purpose of this variable is to be tracked by the relational domains, so make sure they do*)
         length_var.vattr <- [Attr ("goblint_relation_track", [])]; 
@@ -198,6 +282,65 @@ class arrayVisitor (fd : fundec) = object(self)
 
 end
 
+let unknown_length fd loc = 
+  let var = makeTempVar fd size_type in
+  Lval (Var var, NoOffset), Call (Some (Var var, NoOffset), Lval (Var (BatOption.get !top_function), NoOffset), [], loc, loc) 
+
+class call_transfromation_visitor (fd : fundec) = object(self)
+  inherit nopCilVisitor
+
+  method! vinst = function
+    | Call (lval,Lval (Var f, NoOffset), args, loc, loc2) as call -> begin
+        let rec find_var expr = 
+          match expr with 
+          | StartOf (Var v, NoOffset)
+          | Lval (Var v, NoOffset) -> Some v, expr
+          (*handle casts to same size, importantly, for example, adding a const attribute*)
+          | CastE (t,e) when bitsSizeOf (typeOf e) = bitsSizeOf t -> fst (find_var e), expr
+          | _ -> None, expr
+        in
+        let args = List.map find_var args in 
+        match BatHashtbl.find_option function_argument_changes f.vid with
+        | Some (set,_) -> 
+          let rec adjust_arguments index args =
+            if BatSet.mem index set then 
+              match args with 
+              | [] -> ([],[])
+              | (Some v, x)::xs -> begin
+                  let xs', instr = adjust_arguments (index + 1) xs in
+                  match BatHashtbl.find_option mapping v.vid with 
+                  | None -> 
+                    if M.tracing then M.trace "call_tfm" "unknown length at %d" index; 
+                    let l, i = unknown_length fd loc in
+                    x::l::xs', i::instr
+                  | Some l -> 
+                    if M.tracing then M.trace "call_tfm" "known length var at %d: %s" index l.vname; 
+                    x::(Lval (Var l, NoOffset))::xs', instr
+                end 
+              | (_,x)::xs -> 
+                let xs', instr = adjust_arguments (index + 1) xs in
+                if M.tracing then M.trace "call_tfm" "unknown length at %d" index; 
+                let l, i = unknown_length fd loc in
+                x::l::xs', i::instr
+            else (
+              if M.tracing then M.trace "call_tfm" "call: %a index %d does no have length" d_instr call index; 
+              match args with 
+              | [] -> ([],[])
+              | x::xs -> 
+                let xs', instr = adjust_arguments (index + 1) xs in
+                (snd x)::xs', instr
+            )
+          in
+          let args', instr = adjust_arguments 0 args in
+          let call' = Call (lval,Lval (Var f, NoOffset), args', loc, loc2) in  
+          ChangeTo (instr @ [call'])
+        | _ -> SkipChildren
+      end
+    | _ -> SkipChildren
+
+end
 
 let () =
+  Cilfacade.register_pre_preprocess ("lin2vareq_p") find_top_fun;
   Cilfacade.register_preprocess ("lin2vareq_p") (new arrayVisitor);
+  Cilfacade.register_preprocess ("lin2vareq_p") (new call_transfromation_visitor);
