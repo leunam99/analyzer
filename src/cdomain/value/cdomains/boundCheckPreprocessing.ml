@@ -292,11 +292,22 @@ class call_transfromation_visitor (fd : fundec) = object(self)
   method! vinst = function
     | Call (lval,Lval (Var f, NoOffset), args, loc, loc2) as call -> begin
         let rec find_var expr = 
+          let points_to typ =
+            match unrollType typ with 
+            | TPtr (t,_)
+            | TArray (t,_,_) -> t 
+            | _ -> raise (Invalid_argument "Not a pointer")
+          in
           match expr with 
           | StartOf (Var v, NoOffset)
           | Lval (Var v, NoOffset) -> Some v, expr
           (*handle casts to same size, importantly, for example, adding a const attribute*)
-          | CastE (t,e) when bitsSizeOf (typeOf e) = bitsSizeOf t -> fst (find_var e), expr
+          | CastE (t,e) -> 
+            (try 
+            if bitsSizeOf (points_to (typeOf e)) = bitsSizeOf (points_to t) 
+              then fst (find_var e), expr
+              else None, expr
+            with _ -> None, expr )
           | _ -> None, expr
         in
         let args = List.map find_var args in 
