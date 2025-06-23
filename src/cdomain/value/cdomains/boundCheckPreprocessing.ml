@@ -352,6 +352,6 @@ class call_transfromation_visitor (fd : fundec) = object(self)
 end
 
 let () =
-  Cilfacade.register_pre_preprocess ("lin2vareq_p") find_top_fun;
-  Cilfacade.register_preprocess ("lin2vareq_p") (new arrayVisitor);
-  Cilfacade.register_preprocess ("lin2vareq_p") (new call_transfromation_visitor);
+  Cilfacade.register_pre_preprocess ("boundTransformation") find_top_fun;
+  Cilfacade.register_preprocess ("boundTransformation") (new arrayVisitor);
+  Cilfacade.register_preprocess ("boundTransformation") (new call_transfromation_visitor);
