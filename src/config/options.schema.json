@@ -580,7 +580,13 @@
                 "termination",
                 "tmpSpecialAnalysis"
               ]
-            }, 
+            },
+            "memsafetyPreprocessing": {
+              "title": "ana.autotune.memsafetyPreprocessing",
+              "description": "Enable syntactic preprocessing for memsafety specification",
+              "type": "boolean",
+              "default": true
+            },
             "extraTerminationDomain": {
               "title": "ana.autotune.extraTerminationDomain",
               "description": "Domain activated by the 'termination' autotuner. Specifying 'apron' also selects the polyhedra domain",

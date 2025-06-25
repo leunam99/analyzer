@@ -9,7 +9,7 @@ module Spec =
 struct
   include Analyses.DefaultSpec
 
-  let name () = "unit"
+  let name () = "boundTransformation"
   module D = Lattice.Unit
   module C = Printable.Unit
 

@@ -27,7 +27,9 @@ let enableAnalysesForMemSafetySpecification (spec: Svcomp.Specification.t) =
   match spec with
   | ValidFree -> enableSpecAnalyses spec ["base"; "useAfterFree"];
   | ValidDeref ->
-    enableSpecAnalyses spec ["base"; "memOutOfBounds"];
+    let analyses = ["base"; "memOutOfBounds"] in
+    let analyses = if GobConfig.get_bool "ana.autotune.memsafetyPreprocessing" then "boundTransformation" :: analyses else analyses in
+    enableSpecAnalyses spec analyses;
     enableOptions ["ana.arrayoob"; "cil.addNestedScopeAttr"]
   | ValidMemtrack
   | ValidMemcleanup -> enableSpecAnalyses spec ["memLeak"];
