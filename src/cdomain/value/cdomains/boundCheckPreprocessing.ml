@@ -354,4 +354,4 @@ end
 let () =
   Cilfacade.register_pre_preprocess ("boundTransformation") find_top_fun;
   Cilfacade.register_preprocess ("boundTransformation") (new arrayVisitor);
-  Cilfacade.register_preprocess ("boundTransformation") (new call_transfromation_visitor);
+  Cilfacade.register_post_process ("boundTransformation") (new call_transfromation_visitor);

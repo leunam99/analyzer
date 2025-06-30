@@ -137,15 +137,22 @@ let pre_visitors = ref []
 let register_pre_preprocess name f =
   pre_visitors := !pre_visitors @ [name, f]
 
+let second_visitors = ref []
+let register_post_process name visitor_fun =
+  second_visitors := !second_visitors @ [name, visitor_fun]
+
 let do_preprocess ast =
   (* this has to be done here, since the settings aren't available when register_preprocess is called *)
   let active_visitors = List.filter_map (fun (name, visitor_fun) -> if List.mem name (get_string_list "ana.activated") then Some visitor_fun else None) !visitors in
   let active_previsitors = List.filter_map (fun (name, visitor_fun) -> if List.mem name (get_string_list "ana.activated") then Some visitor_fun else None) !pre_visitors in
+  let active_postvisitors = List.filter_map (fun (name, visitor_fun) -> if List.mem name (get_string_list "ana.activated") then Some visitor_fun else None) !second_visitors in
   let f fd visitor_fun = ignore @@ visitCilFunction (visitor_fun fd) fd in
   if active_visitors <> [] then (
     List.iter (fun f -> f ast) active_previsitors;
 
-    iterGlobals ast (function GFun (fd,_) -> List.iter (f fd) active_visitors | _ -> ())
+    iterGlobals ast (function GFun (fd,_) -> List.iter (f fd) active_visitors | _ -> ());
+    iterGlobals ast (function GFun (fd,_) -> List.iter (f fd) active_postvisitors | _ -> ())
+
   )
 
 (** @raise GoblintCil.FrontC.ParseError
