@@ -68,9 +68,8 @@ let find_applicable_functions ast =
   applicable_functions := BatSet.diff !inc !exc
 
 let is_applicable var = 
-  not (hasAttribute "goblint_cil_nested" var.vattr) && (*might get deallocated in the middle of the function*)
   match unrollType var.vtype with
-  | TPtr _
+  | TPtr _ -> not (hasAttribute "goblint_cil_nested" var.vattr) (*might lead to scoping issues*)
   | TArray _ -> true
   | _ -> false
 
