@@ -846,7 +846,7 @@ let array_oob_check ( type a ) (module Idx: IntDomain.Z with type t = a) (ask : 
         let expr = BinOp (Lt,mkCast ~e:e ~newt:BoundCheckPreprocessing.size_type,Lval(Var length_var, NoOffset), BoundCheckPreprocessing.size_type) in
         if M.tracing then M.trace "oob" "checking exp: %a" d_exp expr;
         let res = VDQ.ID.to_bool (ask.eval_int expr) in
-        M.info "upper bound declared save by relation";
+        M.info "upper bound relation returned %s" (BatOption.map_default (Bool.to_string) "None" res);
         res
       | _, b, _ -> b 
     in
