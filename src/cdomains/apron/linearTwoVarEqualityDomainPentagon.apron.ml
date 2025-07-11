@@ -1012,7 +1012,7 @@ struct
     if M.tracing then M.tracel "widen" "widen a: %s b: %s -> %s" (show a) (show b) (show res) ;
     res
 
-  let narrow a b = meet' a b true
+  let narrow a b = meet' a b false
 
   let narrow a b =
     let res = narrow a b in
