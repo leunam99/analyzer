@@ -261,7 +261,17 @@ module IntervalAndCongruence = struct
   let narrow (i1,c1) (i2,c2) = refine (I.narrow ik i1 i2, C.narrow ik c1 c2)
 
   let join (i1,c1) (i2,c2) = refine (I.join ik i1 i2, C.join ik c1 c2)
-  let widen (i1,c1) (i2,c2) = refine (I.widen ik i1 i2, C.widen ik c1 c2)
+
+  let simple_widen _ x y = match x, y with 
+    | None, o
+    | o, None -> o
+    | Some (l1,u1), Some (l2,u2) ->
+      let l = if TopIntOps.compare l1 l2 < 0 then l1 else Top Neg in
+      let u = if TopIntOps.compare u1 u2 > 0 then u1 else Top Pos in  
+      Some (l,u)
+
+
+  let widen (i1,c1) (i2,c2) = refine (simple_widen ik i1 i2, C.widen ik c1 c2)
 
   let of_congruence c = refine (I.top_of ik, C.of_congruence ik c)
 
