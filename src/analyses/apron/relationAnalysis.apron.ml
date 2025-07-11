@@ -265,6 +265,8 @@ struct
     if M.tracing then M.traceu "relation" "-> %a" D.pretty r;
     r
 
+  let assign man (lv:lval) e = Timing.wrap "assign" (assign man (lv)) e
+
   let branch man e b =
     let st = man.local in
     let ask = Analyses.ask_of_man man in
@@ -276,6 +278,7 @@ struct
     if RD.is_bot_env res then raise Deadcode;
     {st with rel = res}
 
+  let branch man e b = Timing.wrap "branch" (branch man e) b
 
   (* Function call transfer functions. *)
 
@@ -340,6 +343,8 @@ struct
     let calle_rel = make_callee_rel ~thread:false man f args in
     [man.local, {man.local with rel = calle_rel}]
 
+  let enter man r f args = Timing.wrap "enter"  (enter man r f) args
+
   let body man f =
     let st = man.local in
     let ask = Analyses.ask_of_man man in
@@ -354,6 +359,9 @@ struct
     let local_assigns = List.map (fun x -> (RV.local x, RV.arg x)) formals in
     RD.assign_var_parallel_with new_rel local_assigns; (* doesn't need to be parallel since arg vars aren't local vars *)
     {st with rel = new_rel}
+
+  let body man f = Timing.wrap "body" (body man) f 
+
 
   let return man e f =
     let st = man.local in
@@ -385,6 +393,8 @@ struct
       | _ ->
         st'
     end
+
+  let return man e f = Timing.wrap "return" ( return man e) f 
 
   let combine_env man r fe f args fc fun_st (f_ask : Queries.ask) =
     let st = man.local in
@@ -437,6 +447,10 @@ struct
     if M.tracing then M.tracel "combine-rel" "relation unifying %a %a = %a" RD.pretty new_rel RD.pretty new_fun_rel RD.pretty unify_rel;
     {fun_st with rel = unify_rel}
 
+  let combine_env man r fe f args fc fun_st (f_ask : Queries.ask) =
+    Timing.wrap "combine" (combine_env man r fe f args fc fun_st) (f_ask : Queries.ask)
+
+
   let combine_assign man r fe f args fc fun_st (f_ask : Queries.ask) =
     let unify_st = man.local in
     if RD.Tracked.type_tracked (Cilfacade.fundec_return_type f) then (
@@ -455,6 +469,9 @@ struct
     )
     else
       unify_st
+
+  let combine_assign man r fe f args fc fun_st (f_ask : Queries.ask) =
+    Timing.wrap "combine_assign" combine_assign man r fe f args fc fun_st (f_ask : Queries.ask)
 
 
   let invalidate_one ask man st lv =
@@ -511,6 +528,10 @@ struct
       in
       if RD.is_bot_env res then raise Deadcode;
       {st with rel = res}
+
+  let assert_fn man e refine =
+    Timing.wrap "assert" (assert_fn man e )refine 
+
 
   let special man r f args =
     let ask = Analyses.ask_of_man man in
@@ -569,6 +590,10 @@ struct
       let st' = List.fold_left (invalidate_one ask man) st' shallow_lvals in
       (* invalidate lval if present *)
       Option.map_default (invalidate_one ask man st') st' r
+
+  let special man r f args =
+    Timing.wrap "special" special man r f args
+
 
   let query_invariant man context =
     let keep_local = GobConfig.get_bool "ana.relation.invariant.local" in
@@ -638,6 +663,10 @@ struct
     else
       Invariant.none
 
+  let query_invariant_global man g =
+    Timing.wrap "invariant" (query_invariant_global man) g
+
+
   let query man (type a) (q: a Queries.t): a Queries.result =
     let open Queries in
     let st = man.local in
@@ -664,6 +693,8 @@ struct
       query_invariant_global man g
     | _ -> Result.top q
 
+  let query man (type a) (q: a Queries.t): a Queries.result =
+    Timing.wrap "query" (query man) (q: a Queries.t)
 
   (* Thread transfer functions. *)
 
@@ -684,6 +715,10 @@ struct
       (* Unknown functions *)
       (* TODO: do something like base? *)
       failwith "relation.threadenter: unknown function"
+
+  let threadenter man ~multiple lval f args =
+    Timing.wrap "threadenter" threadenter man ~multiple lval f args
+
 
   let threadspawn man ~multiple lval f args fman =
     man.local
@@ -767,6 +802,10 @@ struct
       Option.map_default (invalidate_one ask man st) st lval
     | _ ->
       st
+
+  let event man e oman =
+    Timing.wrap "event" (event man e) oman
+
 
   let sync man reason =
     (* After the solver is finished, store the results (for later comparison) *)
