@@ -45,7 +45,7 @@ class applicable_functions_visitor included excluded = object(self)
                || List.mem var.vname (GobConfig.get_string_list "exitfun")
                || LibraryFunctions.is_special var
               ) then
-         included := BatSet.add var !included
+         included := BatSet.add var !included;
      | _ -> ()
     );
     DoChildren
@@ -68,8 +68,9 @@ let find_applicable_functions ast =
   applicable_functions := BatSet.diff !inc !exc
 
 let is_applicable var = 
+  not (hasAttribute "goblint_cil_nested" var.vattr) && (*might get deallocated in the middle of the function*)
   match unrollType var.vtype with
-  | TPtr _ -> not (hasAttribute "goblint_cil_nested" var.vattr) (*might lead to scoping issues*)
+  | TPtr _
   | TArray _ -> true
   | _ -> false
 
@@ -253,7 +254,7 @@ class arrayVisitor (fd : fundec) = object(self)
     pointers := BatSet.diff !pointers !excluded;
     BatSet.iter ( fun var ->
         let length_var = 
-          if List.mem var fd.sformals then 
+          if List.mem var fd.sformals && BatSet.mem fd.svar !applicable_functions then 
             let (set,orig_formals) = BatHashtbl.find_default function_argument_changes fd.svar.vid (BatSet.empty, fd.sformals) in
             let formal = Cil.makeFormalVar fd ~where:var.vname (length_var_name var) size_type in
             let index = fst @@ BatList.findi (fun _ v -> v.vid = var.vid) orig_formals in
@@ -303,10 +304,10 @@ class call_transfromation_visitor (fd : fundec) = object(self)
           (*handle casts to same size, importantly, for example, adding a const attribute*)
           | CastE (t,e) -> 
             (try 
-            if bitsSizeOf (points_to (typeOf e)) = bitsSizeOf (points_to t) 
-              then fst (find_var e), expr
-              else None, expr
-            with _ -> None, expr )
+               if bitsSizeOf (points_to (typeOf e)) = bitsSizeOf (points_to t) 
+               then fst (find_var e), expr
+               else None, expr
+             with _ -> None, expr )
           | _ -> None, expr
         in
         let args = List.map find_var args in 
@@ -352,5 +353,6 @@ end
 
 let () =
   Cilfacade.register_pre_preprocess ("boundTransformation") find_top_fun;
+  Cilfacade.register_pre_preprocess ("boundTransformation") find_applicable_functions;
   Cilfacade.register_preprocess ("boundTransformation") (new arrayVisitor);
   Cilfacade.register_post_process ("boundTransformation") (new call_transfromation_visitor);
