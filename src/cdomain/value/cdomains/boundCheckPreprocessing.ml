@@ -97,6 +97,7 @@ let rec ptr_to_var_and_offset ?additional_offset exp  =
   match exp with 
   | StartOf (Var v, off) 
   | Lval (Var v, off) -> BatOption.map (fun off -> M.trace "oob" "basecase Some"; (v, off)) @@ offs_to_expr @@ BatOption.map_default (addOffset off) off additional_offset
+  | Lval (Mem e, NoOffset) -> ptr_to_var_and_offset ?additional_offset e
   | CastE _ -> M.trace "oob" "expr %a cast" d_exp exp; None (*TODO?*)
   | BinOp (IndexPI, ptr_expr, offs_expr, _)
   | BinOp (PlusPI , ptr_expr, offs_expr, _) -> begin
